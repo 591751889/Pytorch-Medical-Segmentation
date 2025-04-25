@@ -31,10 +31,17 @@ class hparams:
     label_train_dir =  './DRIVE/training/1st_manual_png'
     source_test_dir = './DRIVE/test/images_png'
     label_test_dir = './DRIVE/test/1st_manual_png'
-    
     source_val_dir = source_test_dir
     label_val_dir = label_test_dir
 
+
+    # source_train_dir = './Dataset_BUSI_with_GT/train_images'
+    # label_train_dir =  './Dataset_BUSI_with_GT/train_masks'
+    # source_test_dir = './Dataset_BUSI_with_GT/val_images'
+    # label_test_dir = './Dataset_BUSI_with_GT/val_masks'
+    # source_val_dir = source_test_dir
+    # label_val_dir = label_test_dir
+    #
 
 
     output_dir_test = 'results/'
