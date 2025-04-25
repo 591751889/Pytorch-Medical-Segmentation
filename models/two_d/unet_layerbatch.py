@@ -7,6 +7,25 @@ import torch.nn.functional as F
 import os
 
 
+class DoubleConvLN(nn.Module):
+    '''(conv => LN => ReLU) * 2, 使用 Layer Normalization 替代 Batch Normalization'''
+
+    def __init__(self, in_ch, out_ch, height, width):
+        super(DoubleConvLN, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.LayerNorm([out_ch, height, width]),  # 使用 Layer Normalization
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.LayerNorm([out_ch, height, width]),  # 使用 Layer Normalization
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+
 class DoubleConv(nn.Module):
     '''(conv => BN => ReLU) * 2'''
 
@@ -26,9 +45,9 @@ class DoubleConv(nn.Module):
 
 
 class InConv(nn.Module):
-    def __init__(self, in_ch, out_ch):
+    def __init__(self, in_ch, out_ch, height, width):
         super(InConv, self).__init__()
-        self.conv = DoubleConv(in_ch, out_ch)
+        self.conv = DoubleConvLN(in_ch, out_ch, height, width)
 
     def forward(self, x):
         x = self.conv(x)
@@ -36,11 +55,11 @@ class InConv(nn.Module):
 
 
 class Down(nn.Module):
-    def __init__(self, in_ch, out_ch):
+    def __init__(self, in_ch, out_ch,height, width):
         super(Down, self).__init__()
         self.mpconv = nn.Sequential(
             nn.MaxPool2d(2),
-            DoubleConv(in_ch, out_ch)
+            DoubleConvLN(in_ch, out_ch, height//2, width//2)
         )
 
     def forward(self, x):
@@ -83,48 +102,16 @@ class OutConv(nn.Module):
 
 
 class Unet(nn.Module):
-    def __init__(self, in_channels, classes):
-        super(Unet, self).__init__()
-        self.n_channels = in_channels
-        self.n_classes =  classes
-
-        self.inc = InConv(in_channels, 64)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
-        self.down3 = Down(256, 512)
-        self.down4 = Down(512, 512)
-        self.up1 = Up(1024, 256)
-        self.up2 = Up(512, 128)
-        self.up3 = Up(256, 64)
-        self.up4 = Up(128, 64)
-        self.outc = OutConv(64, classes)
-        
-
-    def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        x = self.outc(x)
-        return x
-
-
-class Unet(nn.Module):
-    def __init__(self, in_channels, classes):
+    def __init__(self, in_channels, classes, height = 512, width = 512):
         super(Unet, self).__init__()
         self.n_channels = in_channels
         self.n_classes = classes
 
-        self.inc = InConv(in_channels, 64)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
-        self.down3 = Down(256, 512)
-        self.down4 = Down(512, 512)
+        self.inc = InConv(in_channels, 64, height, width)
+        self.down1 = Down(64, 128, height, width)
+        self.down2 = Down(128, 256, height//2, width//2)
+        self.down3 = Down(256, 512, height//4, width//4)
+        self.down4 = Down(512, 512, height//8, width//8)
         self.up1 = Up(1024, 256)
         self.up2 = Up(512, 128)
         self.up3 = Up(256, 64)
@@ -133,7 +120,9 @@ class Unet(nn.Module):
 
     def forward(self, x):
         x1 = self.inc(x)
+
         x2 = self.down1(x1)
+        # print(x2.shape)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         x5 = self.down4(x4)
@@ -143,3 +132,18 @@ class Unet(nn.Module):
         x = self.up4(x, x1)
         x = self.outc(x)
         return x
+
+# 设置设备为GPU（如果有的话）
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 创建模型实例
+model = Unet(in_channels=3, classes=1, height=512, width=512).to(device)
+
+# 创建一个输入张量，形状为 (4, 3, 512, 512)
+x = torch.randn(4, 3, 512, 512).to(device)
+
+# 执行前向传播
+output = model(x)
+
+# 输出结果的形状
+print('Output shape:', output.shape)

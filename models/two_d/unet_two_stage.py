@@ -143,3 +143,21 @@ class Unet(nn.Module):
         x = self.up4(x, x1)
         x = self.outc(x)
         return x
+
+class Unet_two(nn.Module):
+    def __init__(self, in_channels, classes):
+        super(Unet_two, self).__init__()
+        self.one =Unet(in_channels, classes)
+        self.two =Unet(classes, classes)
+
+
+    def forward(self, x,mask1):
+        x1 = self.one(x)
+        # 找到 mask1 中值为 0 的索引
+        # zero_indices = (mask1 == 0)
+        #
+        # # 将 x1 中对应的位置设置为 0
+        # x1[zero_indices] = 0
+        x2 = self.two(x1)
+
+        return x1,x2

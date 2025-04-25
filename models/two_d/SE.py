@@ -1,11 +1,11 @@
 # 2D-Unet Model taken from https://github.com/milesial/Pytorch-UNet/blob/master/unet/unet_model.py
-
+#Squeeze-and-Excitation Attention Usage
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import os
-
+from fightingcv_attention.attention.SEAttention import SEAttention
 
 class DoubleConv(nn.Module):
     '''(conv => BN => ReLU) * 2'''
@@ -86,38 +86,6 @@ class Unet(nn.Module):
     def __init__(self, in_channels, classes):
         super(Unet, self).__init__()
         self.n_channels = in_channels
-        self.n_classes =  classes
-
-        self.inc = InConv(in_channels, 64)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
-        self.down3 = Down(256, 512)
-        self.down4 = Down(512, 512)
-        self.up1 = Up(1024, 256)
-        self.up2 = Up(512, 128)
-        self.up3 = Up(256, 64)
-        self.up4 = Up(128, 64)
-        self.outc = OutConv(64, classes)
-        
-
-    def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        x = self.outc(x)
-        return x
-
-
-class Unet(nn.Module):
-    def __init__(self, in_channels, classes):
-        super(Unet, self).__init__()
-        self.n_channels = in_channels
         self.n_classes = classes
 
         self.inc = InConv(in_channels, 64)
@@ -131,15 +99,35 @@ class Unet(nn.Module):
         self.up4 = Up(128, 64)
         self.outc = OutConv(64, classes)
 
+        self.se = SEAttention(channel=512, reduction=8)
+
     def forward(self, x):
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         x5 = self.down4(x4)
+        x5 = self.se(x5)
         x = self.up1(x5, x4)
         x = self.up2(x, x3)
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         x = self.outc(x)
         return x
+
+
+if __name__ == '__main__':
+
+
+    # Move the model to GPU
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = Unet(in_channels=1, classes=1).to(device)
+
+    # Create a dummy input tensor with the shape (batch_size, channels, height, width)
+    input_tensor = torch.randn(4, 1, 256, 256).to(device)
+
+    # Pass the input through the model
+    output_tensor = model(input_tensor)
+
+    # Print the shape of the output tensor
+    print(output_tensor.shape)

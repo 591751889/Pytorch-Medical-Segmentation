@@ -37,10 +37,10 @@ def metric(gt,pred):
     precision = tp / (pred_sum + smooth)
     recall = tp / (gdth_sum + smooth)
 
-    false_positive_rate = fp / (fp + tn + smooth)
-    false_negtive_rate = fn / (fn + tp + smooth)
+    FPR = fp / (fp + tn + smooth)
+    FNR = fn / (fn + tp + smooth)
 
-    jaccard = intersection_sum / (union_sum + smooth)
+    iou = intersection_sum / (union_sum + smooth)
     dice = 2 * intersection_sum / (gdth_sum + pred_sum + smooth)
 
-    return false_positive_rate,false_negtive_rate,dice
+    return dice,iou,precision,recall,FPR,FNR
