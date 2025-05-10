@@ -7,6 +7,8 @@ import sys
 import torch
 from collections import OrderedDict
 import os
+
+
 def conv3x3(in_planes, out_planes, stride=1, dilation=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=dilation, dilation=dilation, bias=False)
@@ -84,7 +86,7 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, in_class,block, layers=(3, 4, 23, 3)):
+    def __init__(self, in_class, block, layers=(3, 4, 23, 3)):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(in_class, 64, kernel_size=7, stride=2, padding=3,
@@ -135,7 +137,6 @@ class ResNet(nn.Module):
         return x, x_3
 
 
-
 class PSPModule(nn.Module):
     def __init__(self, features, out_features=1024, sizes=(1, 2, 3, 6)):
         super().__init__()
@@ -172,13 +173,12 @@ class PSPUpsample(nn.Module):
 
 
 class PSPNet(nn.Module):
-    def __init__(self, in_class=1,n_classes=1, sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=1024, backend='resnet34',
+    def __init__(self, in_channels=1, out_channels=1, sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=1024,
+                 backend='resnet34',
                  pretrained=True):
         super().__init__()
 
-
-        self.feats = ResNet(in_class,BasicBlock, [3, 4, 6, 3])
-
+        self.feats = ResNet(in_channels, BasicBlock, [3, 4, 6, 3])
 
         self.psp = PSPModule(psp_size, 1024, sizes)
         self.drop_1 = nn.Dropout2d(p=0.3)
@@ -189,14 +189,12 @@ class PSPNet(nn.Module):
 
         self.drop_2 = nn.Dropout2d(p=0.15)
         self.final = nn.Sequential(
-            nn.Conv2d(64, n_classes, kernel_size=1),
+            nn.Conv2d(64, out_channels, kernel_size=1),
             nn.LogSoftmax()
         )
 
-
-
     def forward(self, x):
-        f, class_f = self.feats(x) 
+        f, class_f = self.feats(x)
         p = self.psp(f)
         p = self.drop_1(p)
 
@@ -209,8 +207,12 @@ class PSPNet(nn.Module):
         p = self.up_3(p)
         p = self.drop_2(p)
 
-
         return self.final(p)
 
 
-    
+if __name__ == '__main__':
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    input = torch.rand((4, 1, 256, 256), device=device)
+    model = PSPNet(in_channels=1, out_channels=1).to(device)
+    output = model(input)
+    print(output.shape)

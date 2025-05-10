@@ -3,23 +3,26 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 import sys
 import torch
 from collections import OrderedDict
 import torch.nn as nn
+
+from main import output_dir_test
 
 BatchNorm2d = nn.BatchNorm2d
 
 
 class Bottleneck(nn.Module):
     expansion = 4
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1, bn_momentum=0.0003):
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1,
+                 bn_momentum=0.0003):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm2d(planes, momentum=bn_momentum)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-                               padding=dilation*multi_grid, dilation=dilation*multi_grid, bias=False)
+                               padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
         self.bn2 = BatchNorm2d(planes, momentum=bn_momentum)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm2d(planes * 4, momentum=bn_momentum)
@@ -28,12 +31,12 @@ class Bottleneck(nn.Module):
         self.downsample = downsample
         self.dilation = dilation
         self.stride = stride
-    
+
     def _sum_each(self, x, y):
-        assert(len(x)==len(y))
+        assert (len(x) == len(y))
         z = []
         for i in range(len(x)):
-            z.append(x[i]+y[i])
+            z.append(x[i] + y[i])
         return z
 
     def forward(self, x):
@@ -53,13 +56,13 @@ class Bottleneck(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
-        out = out + residual      
+        out = out + residual
         out = self.relu_inplace(out)
         return out
 
 
 class ResNet(nn.Module):
-    def __init__(self, in_class, block, layers, dilation=[1,1,1,1], bn_momentum=0.0003, is_fpn=False):
+    def __init__(self, in_class, block, layers, dilation=[1, 1, 1, 1], bn_momentum=0.0003, is_fpn=False):
         self.inplanes = 128
         self.is_fpn = is_fpn
         super(ResNet, self).__init__()
@@ -76,9 +79,12 @@ class ResNet(nn.Module):
 
         self.relu = nn.ReLU(inplace=False)
         self.layer1 = self._make_layer(block, 64, layers[0], stride=1, dilation=dilation[0], bn_momentum=bn_momentum)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=1 if dilation[1]!=1 else 2, dilation=dilation[1], bn_momentum=bn_momentum)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1 if dilation[2]!=1 else 2, dilation=dilation[2], bn_momentum=bn_momentum)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1 if dilation[3]!=1 else 2, dilation=dilation[3], bn_momentum=bn_momentum)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=1 if dilation[1] != 1 else 2, dilation=dilation[1],
+                                       bn_momentum=bn_momentum)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1 if dilation[2] != 1 else 2, dilation=dilation[2],
+                                       bn_momentum=bn_momentum)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1 if dilation[3] != 1 else 2, dilation=dilation[3],
+                                       bn_momentum=bn_momentum)
 
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1, bn_momentum=0.0003):
         downsample = None
@@ -86,14 +92,16 @@ class ResNet(nn.Module):
             downsample = nn.Sequential(
                 nn.Conv2d(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion, affine = True, momentum=bn_momentum))
+                BatchNorm2d(planes * block.expansion, affine=True, momentum=bn_momentum))
 
         layers = []
-        generate_multi_grid = lambda index, grids: grids[index%len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid), bn_momentum=bn_momentum))
+        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample,
+                            multi_grid=generate_multi_grid(0, multi_grid), bn_momentum=bn_momentum))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid), bn_momentum=bn_momentum))
+            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid),
+                                bn_momentum=bn_momentum))
 
         return nn.Sequential(*layers)
 
@@ -105,8 +113,8 @@ class ResNet(nn.Module):
             x = self.maxpool(x)
             start_module = 2
         features = []
-        for i in range(start_module, end_module+1):
-            x = eval('self.layer%d'%(i-1))(x)
+        for i in range(start_module, end_module + 1):
+            x = eval('self.layer%d' % (i - 1))(x)
             features.append(x)
 
         if self.is_fpn:
@@ -118,10 +126,9 @@ class ResNet(nn.Module):
             return x
 
 
-def get_resnet101(in_class, dilation=[1,1,1,1], bn_momentum=0.0003, is_fpn=False):
-    model = ResNet(in_class,Bottleneck, [3, 4, 23, 3], dilation=dilation, bn_momentum=bn_momentum, is_fpn=is_fpn)
+def get_resnet101(in_class, dilation=[1, 1, 1, 1], bn_momentum=0.0003, is_fpn=False):
+    model = ResNet(in_class, Bottleneck, [3, 4, 23, 3], dilation=dilation, bn_momentum=bn_momentum, is_fpn=is_fpn)
     return model
-
 
 
 class ASPP(nn.Module):
@@ -159,7 +166,7 @@ class ASPP(nn.Module):
         # Map convolutions
         out = torch.cat([m(x) for m in self.map_convs], dim=1)
         out = self.map_bn(out)
-        out = self.leak_relu(out)       # add activation layer
+        out = self.leak_relu(out)  # add activation layer
         out = self.red_conv(out)
 
         # Global pooling
@@ -198,18 +205,25 @@ class ASPP(nn.Module):
 
 
 class DeepLabV3(nn.Module):
-    def __init__(self, in_class, class_num, bn_momentum=0.01):
+    def __init__(self, in_channels, out_channels, bn_momentum=0.01):
         super(DeepLabV3, self).__init__()
-        self.Resnet101 = get_resnet101(in_class, dilation=[1, 1, 1, 2], bn_momentum=bn_momentum, is_fpn=False)
+        self.Resnet101 = get_resnet101(in_channels, dilation=[1, 1, 1, 2], bn_momentum=bn_momentum, is_fpn=False)
         self.ASPP = ASPP(2048, 256, [6, 12, 18], norm_act=nn.BatchNorm2d)
-        self.classify = nn.Conv2d(256, class_num, 1, bias=True)
-        
+        self.classify = nn.Conv2d(256, out_channels, 1, bias=True)
+
     def forward(self, input):
         x = self.Resnet101(input)
 
-        aspp = self.ASPP(x)     # 空间金字塔池化
+        aspp = self.ASPP(x)  # 空间金字塔池化
         predict = self.classify(aspp)
 
-        output= F.interpolate(predict, size=input.size()[2:4], mode='bilinear', align_corners=True)
+        output = F.interpolate(predict, size=input.size()[2:4], mode='bilinear', align_corners=True)
         return output
 
+
+if __name__ == '__main__':
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    input = torch.rand((4, 1, 256, 256), device=device)
+    model = DeepLabV3(in_channels=1, out_channels=1).to(device)
+    output = model(input)
+    print(output.shape)

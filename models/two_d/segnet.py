@@ -5,12 +5,12 @@ from collections import OrderedDict
 import os
 
 class SegNet(nn.Module):
-    def __init__(self,input_nbr,label_nbr):
+    def __init__(self, in_channels, out_channels):
         super(SegNet, self).__init__()
 
         batchNorm_momentum = 0.1
 
-        self.conv11 = nn.Conv2d(input_nbr, 64, kernel_size=3, padding=1)
+        self.conv11 = nn.Conv2d(in_channels, 64, kernel_size=3, padding=1)
         self.bn11 = nn.BatchNorm2d(64, momentum= batchNorm_momentum)
         self.conv12 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
         self.bn12 = nn.BatchNorm2d(64, momentum= batchNorm_momentum)
@@ -69,7 +69,7 @@ class SegNet(nn.Module):
 
         self.conv12d = nn.Conv2d(64, 64, kernel_size=3, padding=1)
         self.bn12d = nn.BatchNorm2d(64, momentum= batchNorm_momentum)
-        self.conv11d = nn.Conv2d(64, label_nbr, kernel_size=3, padding=1)
+        self.conv11d = nn.Conv2d(64, out_channels, kernel_size=3, padding=1)
 
 
     def forward(self, x):
@@ -132,3 +132,11 @@ class SegNet(nn.Module):
         x11d = self.conv11d(x12d)
 
         return x11d
+
+if __name__ == '__main__':
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    input = torch.rand((4, 1, 256, 256), device=device)
+    model = SegNet(in_channels=1, out_channels=1).to(device)
+    output = model(input)
+    print(output.shape)
+

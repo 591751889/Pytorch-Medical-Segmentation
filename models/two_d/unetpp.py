@@ -83,8 +83,8 @@ class BasicConv2d(nn.Module):
 
 class ResNet34UnetPlus(nn.Module):
     def __init__(self,
-                 num_channels=1,
-                 num_class=1,
+                 in_channels=1,
+                 out_channels=1,
                  is_deconv=False,
                  decoder_kernel_size=3,
                  ):
@@ -104,10 +104,10 @@ class ResNet34UnetPlus(nn.Module):
         # self.firstconv = resnet.conv1
         # assert num_channels == 3, "num channels not used now. to use changle first conv layer to support num channels other then 3"
         # try to use 8-channels as first input
-        if num_channels == 3:
+        if in_channels == 3:
             self.firstconv = resnet.conv1
         else:
-            self.firstconv = nn.Conv2d(num_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3),bias=False)
+            self.firstconv = nn.Conv2d(in_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
  
         self.firstbn = resnet.bn1
         self.firstrelu = resnet.relu
@@ -166,10 +166,10 @@ class ResNet34UnetPlus(nn.Module):
                                    kernel_size=decoder_kernel_size,
                                    is_deconv=is_deconv)
 
-        self.logit1 = nn.Conv2d( 64,num_class, kernel_size=1)
-        self.logit2 = nn.Conv2d( 64,num_class, kernel_size=1)
-        self.logit3 = nn.Conv2d(128,num_class, kernel_size=1)
-        self.logit4 = nn.Conv2d(256,num_class, kernel_size=1)
+        self.logit1 = nn.Conv2d(64, out_channels, kernel_size=1)
+        self.logit2 = nn.Conv2d(64, out_channels, kernel_size=1)
+        self.logit3 = nn.Conv2d(128, out_channels, kernel_size=1)
+        self.logit4 = nn.Conv2d(256, out_channels, kernel_size=1)
 
 
  
@@ -201,12 +201,12 @@ class ResNet34UnetPlus(nn.Module):
 
         x0_0 = x_
         x1_0 = e1
-        print(x0_0.shape, x1_0.shape)  #64 128 128
+
         x0_1 = self.decoder0_1([x0_0, upsize(x1_0)])  # 256 256
 
         x2_0 = e2
         x1_1 = self.decoder1_1([x1_0, upsize(x2_0)])
-        print(x0_0.shape, x0_1.shape, x1_1.shape)
+
         x0_2 = self.decoder0_2([x0_0, x0_1,  upsize(x1_1)])
 
         x3_0 = e3
@@ -225,11 +225,22 @@ class ResNet34UnetPlus(nn.Module):
         logit2 = self.logit2(x0_2)
         logit3 = self.logit3(x0_3)
         logit4 = self.logit4(x0_4)
-        print(self.mix)
+
         logit = self.mix[1]*logit1 + self.mix[2]*logit2 + self.mix[3]*logit3 + self.mix[4]*logit4
         logit = F.interpolate(logit, size=(H,W), mode='bilinear', align_corners=False)
 
 
         return logit
+
+
+if __name__ == '__main__':
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    input = torch.rand((4, 1, 256, 256), device=device)
+    model = ResNet34UnetPlus(in_channels=1, out_channels=1).to(device)
+    output = model(input)
+    print(output.shape)
+
+
+
 
    

@@ -32,11 +32,11 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
 
 class FCN32s(nn.Module):
 
-    def __init__(self, in_class = 1,n_class=1):
+    def __init__(self, in_channels=1, out_channels=1):
         super(FCN32s, self).__init__()
-        
+
         # conv1
-        self.conv1_1 = nn.Conv2d(in_class, 64, 3, padding=100)
+        self.conv1_1 = nn.Conv2d(in_channels, 64, 3, padding=100)
         self.relu1_1 = nn.ReLU(inplace=True)
         self.conv1_2 = nn.Conv2d(64, 64, 3, padding=1)
         self.relu1_2 = nn.ReLU(inplace=True)
@@ -86,8 +86,8 @@ class FCN32s(nn.Module):
         self.relu7 = nn.ReLU(inplace=True)
         self.drop7 = nn.Dropout2d()
 
-        self.score_fr = nn.Conv2d(4096, n_class, 1)
-        self.upscore = nn.ConvTranspose2d(n_class, n_class, 64, stride=32,
+        self.score_fr = nn.Conv2d(4096, out_channels, 1)
+        self.upscore = nn.ConvTranspose2d(out_channels, out_channels, 64, stride=32,
                                           bias=False)
 
         self._initialize_weights()
@@ -142,4 +142,10 @@ class FCN32s(nn.Module):
 
         return h
 
-    
+
+if __name__ == '__main__':
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    input = torch.rand((4, 1, 256, 256), device=device)
+    model = FCN32s(in_channels=1, out_channels=1).to(device)
+    output = model(input)
+    print(output.shape)
