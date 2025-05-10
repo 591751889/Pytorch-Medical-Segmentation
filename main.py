@@ -66,6 +66,81 @@ def parse_training_args(parser):
     return parser
 
 
+import torch
+
+def validate(model,
+             val_loader,
+             criterion,
+             hp,
+             metric,
+             device="cuda"):
+    """Run one full pass on the validation set.
+
+    Returns
+    -------
+    (val_loss, val_dice, val_iou, val_precision, val_recall, val_FPR, val_FNR)
+    """
+    model.eval()
+
+    totals = {
+        "loss": 0.0,
+        "dice": 0.0,
+        "iou": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "FPR": 0.0,
+        "FNR": 0.0,
+    }
+    num_iters = 0
+
+    with torch.no_grad():
+        for i, batch in enumerate(val_loader):
+            if getattr(hp, "debug", False) and i >= 1:   # 可选调试
+                break
+
+            x = batch["source"]["data"].float().to(device)
+            y = batch["label"]["data"].float().to(device)
+
+            if hp.mode == "2d":
+                x = x.squeeze(4)
+                y = y.squeeze(4)
+                y[y != 0] = 1
+
+            outputs = model(x)
+            loss = criterion(outputs, y)
+
+            logits = torch.sigmoid(outputs)
+            labels = (logits > 0.5).float()
+
+            dice, iou, precision, recall, FPR, FNR = metric(
+                y.cpu(), labels.cpu()
+            )
+
+            totals["loss"] += loss.item()
+            totals["dice"] += dice
+            totals["iou"] += iou
+            totals["precision"] += precision
+            totals["recall"] += recall
+            totals["FPR"] += FPR
+            totals["FNR"] += FNR
+            num_iters += 1
+
+    # 取平均
+    for k in totals:
+        totals[k] /= num_iters
+
+    return (
+        totals["loss"],
+        totals["dice"],
+        totals["iou"],
+        totals["precision"],
+        totals["recall"],
+        totals["FPR"],
+        totals["FNR"],
+    )
+
+
+
 def train(model):
     parser = argparse.ArgumentParser(description='PyTorch Image Segmentation Training')
     parser = parse_training_args(parser)
@@ -110,13 +185,7 @@ def train(model):
 
     model.cuda()
 
-    from loss_function import DiceLoss, Binary_Loss
-    # criterion =  DiceLoss().cuda()
-    criterion = Binary_Loss().cuda()
-    # criterion =  FocalLoss().cuda()
-    # criterion = DiceFocalLoss().cuda()
-    # criterion = BCEDiceLoss().cuda()
-    # criterion = BCEDiceFocalLoss().cuda()
+
     writer = SummaryWriter(args.output_dir)
 
     train_dataset = MedData_train(source_train_dir, label_train_dir)
@@ -198,49 +267,16 @@ def train(model):
         # Save checkpoint
         if epoch % args.epochs_per_checkpoint == 0:
 
-            print('ssss')
 
             model.eval()
-            val_loss, val_dice, val_iou, val_precision, val_recall, val_FPR, val_FNR = 0, 0, 0, 0, 0, 0, 0
-            num_val_iters = 0
+            (val_loss,val_dice,val_iou,val_precision,val_recall,val_FPR,val_FNR) = (
+                validate(model,val_loader,criterion,hp,metric,device="cuda"))
 
-            for i, batch in enumerate(val_loader):
-                if hp.debug:
-                    if i >= 1:
-                        break
+            print(f"[Epoch {epoch}] "
+                  f"loss={val_loss:.4f}, "
+                  f"dice={val_dice:.4f}, "
+                  f"iou={val_iou:.4f}")
 
-                x = batch['source']['data'].type(torch.FloatTensor).cuda()
-                y = batch['label']['data'].type(torch.FloatTensor).cuda()
-
-                if hp.mode == '2d':
-                    x = x.squeeze(4)
-                    y = y.squeeze(4)
-                    y[y != 0] = 1
-
-                with torch.no_grad():
-                    outputs = model(x)
-                    loss = criterion(outputs, y)
-                    logits = torch.sigmoid(outputs)
-                    labels = logits.clone()
-                    labels[labels > 0.5] = 1
-                    labels[labels <= 0.5] = 0
-                val_loss += loss.item()
-                dice, iou, precision, recall, FPR, FNR = metric(y.cpu(), labels.cpu())
-                val_dice += dice
-                val_iou += iou
-                val_precision += precision
-                val_recall += recall
-                val_FNR += FNR
-                val_FPR += FPR
-                num_val_iters += 1
-
-            val_loss /= num_val_iters
-            val_dice /= num_val_iters
-            val_iou /= num_val_iters
-            val_precision /= num_val_iters
-            val_recall /= num_val_iters
-            val_FNR /= num_val_iters
-            val_FPR /= num_val_iters
             writer.add_scalar('Validation/val_loss', val_loss, epoch)
             writer.add_scalar('Validation/val_dice', val_dice, epoch)
             writer.add_scalar('Validation/val_iou', val_iou, epoch)
@@ -248,9 +284,7 @@ def train(model):
             writer.add_scalar('Validation/val_recall', val_recall, epoch)
             writer.add_scalar('Validation/val_FNR', val_FNR, epoch)
             writer.add_scalar('Validation/val_FPR', val_FPR, epoch)
-            print("Validation Loss:", val_loss)
-            print("Validation val_dice:", val_dice)
-            print("Validation val_iou:", val_iou)
+
             # scheduler.step(val_loss)
             if val_dice > best_dice:
                 print(f"Dice improved from {best_dice:.4f} to {val_dice:.4f}. Saving best model...")
@@ -312,7 +346,7 @@ def test(model):
             patch_size,
             patch_overlap,
         )
-
+        print(test_dataset.image_paths[i])
         patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=args.batch)
         aggregator = torchio.inference.GridAggregator(grid_sampler)
         aggregator_1 = torchio.inference.GridAggregator(grid_sampler)
@@ -342,15 +376,19 @@ def test(model):
         output_tensor_1 = aggregator_1.get_output_tensor()
         affine = subj['source']['affine']
 
-        dice = metric(subj['label'][torchio.DATA].to(device), output_tensor_1.to(device))
+        # dice = metric(subj['label'][torchio.DATA].to(device), output_tensor_1.to(device))
+
+        dice = metric(subj['label'][torchio.DATA].to('cpu'), output_tensor_1.to('cpu'))
+        print('校验',subj['label'][torchio.DATA].shape, output_tensor_1.shape)
         dice_scores.append(dice[0].item())
         Pid = os.path.basename(test_dataset.image_paths[i])
         Pids.append(Pid)
         print(f"Dice Score for sample {i}: {dice[0].item():.4f}")
 
-        if (hp.in_class == 3) and (hp.out_class == 1):
+        if (hp.out_class == 1) :
 
             output_image = torchio.ScalarImage(tensor=output_tensor_1.numpy(), affine=affine)
+            print(output_tensor_1.numpy().shape)
             output_image.save(os.path.join(output_dir_test, str(test_dataset.image_paths[i]).split('/')[-1]))
         else:
             output_tensor = output_tensor.unsqueeze(1)
@@ -409,10 +447,18 @@ if __name__ == '__main__':
     # model_names=['Unet','Unet_DC_ED','Unet_SK_ED','Unet_SVD_SH','Unet_SKD','Unet_SKD_SVD']
     model_names = ['unet']
 
+    from loss_function import DiceLoss, Binary_Loss
+
+    # criterion =  DiceLoss().cuda()
+    criterion = Binary_Loss().cuda()
+    # criterion =  FocalLoss().cuda()
+    # criterion = DiceFocalLoss().cuda()
+    # criterion = BCEDiceLoss().cuda()
+    # criterion = BCEDiceFocalLoss().cuda()
+
     for model_name in model_names:
         print(model_name)
         model = Unet(in_channels=3, out_channels=1).to(device)
-        # continue
         hp.output_dir = os.path.join('logs', model_name + str(hp.init_lr))
 
         if hp.train_or_test == 'train':

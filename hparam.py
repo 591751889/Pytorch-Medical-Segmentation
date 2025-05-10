@@ -1,6 +1,8 @@
 class hparams:
 
-    train_or_test = 'train'
+
+
+    train_or_test = 'test'
     output_dir = 'log_thy/'
     aug = None
     latest_checkpoint_file = 'checkpoint_latest.pt'
@@ -17,12 +19,13 @@ class hparams:
     out_class = 1
     best_dice=0.0
     num_workers = 0
-    crop_or_pad_size =500,500,1 # if 2D: 256,256,1
-    patch_size = 500,500,1 # if 2D: 128,128,1
-    best_dice_model_file = None
+    crop_or_pad_size =256,256,1 # if 2D: 256,256,1
+    patch_size = 256,256,1 # if 2D: 128,128,1
+    best_dice_model_file = 'best_dice_model.pt'
     # for test
     patch_overlap = 4,4,0 # if 2D: 4,4,0
 
+    model_names = ['unet']
     fold_arch = '*.png'
 
     save_arch = '.png'

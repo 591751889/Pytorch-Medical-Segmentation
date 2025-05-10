@@ -19,125 +19,30 @@ class Binary_Loss(nn.Module):
         super(Binary_Loss, self).__init__()
         self.criterion = nn.BCEWithLogitsLoss()
 
-
     def forward(self, model_output, targets):
-        #targets[targets == 0] = -1
-
-        # torch.empty(3, dtype=torch.long)
-        # model_output = model_output.long()
-        # targets = targets.long()
-        # print(model_output)
-        # print(F.sigmoid(model_output))
-        # print(targets)
-        # print('kkk')
-        # model_output =torch.LongTensor(model_output.cpu())
-        # targets =torch.LongTensor(targets.cpu())
-        # model_output = model_output.type(torch.LongTensor)
-        # targets = targets.type(torch.LongTensor)
         loss = self.criterion(model_output, targets)
-
-       
+   
         return loss
 
 
-
-
-
-def make_one_hot(input, num_classes):
-    """Convert class index tensor to one hot encoding tensor.
-    Args:
-         input: A tensor of shape [N, 1, *]
-         num_classes: An int of number of class
-    Returns:
-        A tensor of shape [N, num_classes, *]
-    """
-    shape = np.array(input.shape)
-    shape[1] = num_classes
-    shape = tuple(shape)
-    result = torch.zeros(shape)
-    result = result.scatter_(1, input.cpu(), 1)
-
-    return result
-
-class BinaryDiceLoss(nn.Module):
-    """Dice loss of binary class
-    Args:
-        smooth: A float number to smooth loss, and avoid NaN error, default: 1
-        p: Denominator value: \sum{x^p} + \sum{y^p}, default: 2
-        predict: A tensor of shape [N, *]
-        target: A tensor of shape same with predict
-        reduction: Reduction method to apply, return mean over batch if 'mean',
-            return sum if 'sum', return a tensor of shape [N,] if 'none'
-    Returns:
-        Loss tensor according to arg reduction
-    Raise:
-        Exception if unexpected reduction
-    """
-    def __init__(self, smooth=1, p=2, reduction='mean'):
-        super(BinaryDiceLoss, self).__init__()
-        self.smooth = smooth
-        self.p = p
-        self.reduction = reduction
-
-    def forward(self, predict, target):
-        assert predict.shape[0] == target.shape[0], "predict & target batch size don't match"
-        predict = predict.contiguous().view(predict.shape[0], -1)
-        target = target.contiguous().view(target.shape[0], -1)
-
-        num = torch.sum(torch.mul(predict, target), dim=1) + self.smooth
-        den = torch.sum(predict.pow(self.p) + target.pow(self.p), dim=1) + self.smooth
-
-        loss = 1 - num / den
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        elif self.reduction == 'none':
-            return loss
-        else:
-            raise Exception('Unexpected reduction {}'.format(self.reduction))
-        
 class DiceLoss(nn.Module):
-    def __init__(self, n_classes):
+    def __init__(self):
         super(DiceLoss, self).__init__()
-        self.n_classes = n_classes
+        self.smooth = 1  # 调整为更小的平滑系数
 
-    def _one_hot_encoder(self, input_tensor):
-        tensor_list = []
-        for i in range(self.n_classes):
-            temp_prob = input_tensor == i * torch.ones_like(input_tensor)
-            tensor_list.append(temp_prob)
-        output_tensor = torch.cat(tensor_list, dim=1)
-        return output_tensor.float()
-
-    def _dice_loss(self, score, target):
-        target = target.float()
-        smooth = 1e-5
-        intersect = torch.sum(score * target)
-        y_sum = torch.sum(target * target)
-        z_sum = torch.sum(score * score)
-        loss = (2 * intersect + smooth) / (z_sum + y_sum + smooth)
-        loss = 1 - loss
+    def forward(self, inputs, targets):
+        num = targets.size(0)
+        probs = torch.sigmoid(inputs)
+        m1 = probs.view(num, -1)  # 预测概率展平 [B, N]
+        m2 = targets.view(num, -1)  # 标签展平 [B, N]
+        
+        intersection = (m1 * m2).sum(1)  # 每个样本的交集 [B]
+        dice_score = (2. * intersection + self.smooth) / (m1.sum(1) + m2.sum(1) + self.smooth)  # 修正分子
+        
+        loss = 1 - dice_score.mean()  # 平均所有样本的Dice Loss
         return loss
-
-    def forward(self, inputs, target, weight=None, softmax=False):
-        if softmax:
-            inputs = torch.softmax(inputs, dim=1)
-        target = self._one_hot_encoder(target)
-        if weight is None:
-            weight = [1] * self.n_classes
-        assert inputs.size() == target.size(), 'predict & target shape do not match'
-        class_wise_dice = []
-        loss = 0.0
-        for i in range(0, self.n_classes):
-            dice = self._dice_loss(inputs[:, i], target[:, i])
-            class_wise_dice.append(1.0 - dice.item())
-            loss += dice * weight[i]
-        return loss / self.n_classes
     
     
-
 class CrossEntropyLossWrapper(nn.Module):
     """
     计算 Cross-Entropy Loss (CELoss) 的类
@@ -168,3 +73,66 @@ class CrossEntropyLossWrapper(nn.Module):
         # 计算 Cross-Entropy Loss
         loss = F.cross_entropy(logits, labels_binary)
         return loss
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.75, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha  # 平衡正负样本的权重
+        self.gamma = gamma  # 调节难易样本的权重
+        self.reduction = reduction
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')  
+
+    def forward(self, inputs, targets):
+        bce_loss = self.bce(inputs, targets)
+        pt = torch.sigmoid(inputs)
+        focal_weight = self.alpha * (1 - pt) ** self.gamma * targets + (1 - self.alpha) * pt ** self.gamma * (1 - targets)
+        focal_loss = focal_weight * bce_loss
+        return focal_loss.mean() if self.reduction == 'mean' else focal_loss.sum()
+        
+
+class DiceFocalLoss(nn.Module):
+    def __init__(self, dice_weight=0.6 ,focal_weight=0.4):
+        super(DiceFocalLoss, self).__init__()
+        self.dice_weight = dice_weight
+        self.focal_weight = focal_weight
+        self.dice_loss = DiceLoss()
+        self.focal_loss = FocalLoss()
+
+    def forward(self, inputs, targets):
+        # 无需压缩 targets 的维度，保持四维传递
+        dice_loss = self.dice_loss(inputs, targets)
+        focal_loss = self.focal_loss(inputs, targets)
+        total_loss = self.dice_weight * dice_loss + self.focal_weight * focal_loss
+        return total_loss
+class BCEDiceLoss(nn.Module):
+    def __init__(self, dice_weight=0.6, BCE_weight=0.4):
+        super(BCEDiceLoss, self).__init__()
+        self.dice_weight = dice_weight
+        self.bce_weight = BCE_weight
+        self.dice_loss = DiceLoss()
+        self.bce_loss = Binary_Loss()
+
+    def forward(self, inputs, targets):
+        # 无需压缩 targets 的维度，保持四维传递
+        dice_loss = self.dice_loss(inputs, targets)
+        bce_loss = self.bce_loss(inputs, targets)
+        total_loss = self.dice_weight * dice_loss + self.bce_weight * bce_loss
+        return total_loss
+
+class BCEDiceFocalLoss(nn.Module):
+    def __init__(self, dice_weight=0.3, BCE_weight=0.3,Focal_weight=0.4):
+        super(BCEDiceFocalLoss, self).__init__()
+        self.dice_weight = dice_weight
+        self.bce_weight = BCE_weight
+        self.focal_weight = Focal_weight
+        self.dice_loss = DiceLoss()
+        self.bce_loss = Binary_Loss()
+        self.focal_loss = FocalLoss()
+    def forward(self, inputs, targets):
+        # 无需压缩 targets 的维度，保持四维传递
+        dice_loss = self.dice_loss(inputs, targets)
+        bce_loss = self.bce_loss(inputs, targets)
+        focal_loss=self.focal_loss(inputs, targets)
+        total_loss = self.dice_weight * dice_loss + self.bce_weight * bce_loss+self.focal_weight * focal_loss
+        return total_loss
