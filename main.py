@@ -7,10 +7,6 @@ devicess = [0]
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import argparse
-import numpy as np
-from PIL import Image
-from thop import profile, clever_format
-import importlib
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -40,7 +36,7 @@ def parse_training_args(parser):
     """
     Parse commandline arguments.
     """
-    parser.add_argument('-o', '--output_dir', type=str, default=hp.output_dir, required=False,
+    parser.add_argument('-o', '--log_dir', type=str, default=hp.log_dir, required=False,
                         help='Directory to save checkpoints')
     parser.add_argument('--latest-checkpoint-file', type=str, default=hp.latest_checkpoint_file,
                         help='Store the latest checkpoint in each epoch')
@@ -141,7 +137,7 @@ def validate(model,
 
 
 
-def train(model):
+def train(model,optimizer):
     parser = argparse.ArgumentParser(description='PyTorch Image Segmentation Training')
     parser = parse_training_args(parser)
     args, _ = parser.parse_known_args()
@@ -151,11 +147,11 @@ def train(model):
     torch.backends.cudnn.benchmark = args.cudnn_benchmark
 
     from data_function import MedData_train, MedData_val
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(args.log_dir, exist_ok=True)
 
     model = torch.nn.DataParallel(model, device_ids=devicess)
     # optimizer = torch.optim.Adam(model.parameters(), lr=0.02,weight_decay=1e-4)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.init_lr)
+
     # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3,betas=(0.9, 0.99),weight_decay=1e-5)
     # optimizer = torch.optim.SGD(model.parameters(), lr=0.02, momentum=0.9)
     scheduler = StepLR(optimizer, step_size=hp.scheduer_step_size, gamma=hp.scheduer_gamma)
@@ -165,8 +161,8 @@ def train(model):
 
     if args.ckpt is not None:
         print("load model:", args.ckpt)
-        print(os.path.join(args.output_dir, args.latest_checkpoint_file))
-        ckpt = torch.load(os.path.join(args.output_dir, args.latest_checkpoint_file),
+        print(os.path.join(args.log_dir, args.latest_checkpoint_file))
+        ckpt = torch.load(os.path.join(args.log_dir, args.latest_checkpoint_file),
                           map_location=lambda storage, loc: storage)
 
         model.load_state_dict(ckpt["model"])
@@ -186,7 +182,7 @@ def train(model):
     model.cuda()
 
 
-    writer = SummaryWriter(args.output_dir)
+    writer = SummaryWriter(args.log_dir)
 
     train_dataset = MedData_train(source_train_dir, label_train_dir)
     train_loader = DataLoader(train_dataset.queue_dataset, batch_size=args.batch, shuffle=True,
@@ -261,7 +257,7 @@ def train(model):
         torch.save(
             {"model": model.state_dict(), "optim": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
              "epoch": epoch},
-            os.path.join(args.output_dir, args.latest_checkpoint_file)
+            os.path.join(args.log_dir, args.latest_checkpoint_file)
         )
 
         # Save checkpoint
@@ -295,7 +291,7 @@ def train(model):
                         "optim": optimizer.state_dict(),
                         "epoch": epoch,
                     },
-                    os.path.join(args.output_dir, "best_dice_model.pt"),
+                    os.path.join(args.log_dir, "best_dice_model.pt"),
                 )
 
     writer.close()
@@ -318,8 +314,8 @@ def test(model):
     model = torch.nn.DataParallel(model, device_ids=devicess)
 
     print("load model:", args.ckpt)
-    print(os.path.join(args.output_dir, args.best_dice_model_file))
-    ckpt = torch.load(os.path.join(args.output_dir, args.best_dice_model_file),
+    print(os.path.join(args.log_dir, args.best_dice_model_file))
+    ckpt = torch.load(os.path.join(args.log_dir, args.best_dice_model_file),
                       map_location=lambda storage, loc: storage)
 
     model.load_state_dict(ckpt["model"])
@@ -387,37 +383,11 @@ def test(model):
 
         if (hp.out_class == 1) :
 
-            output_image = torchio.ScalarImage(tensor=output_tensor_1.numpy(), affine=affine)
+            output_image = torchio.ScalarImage(tensor=output_tensor_1.numpy()*255, affine=affine)
             print(output_tensor_1.numpy().shape)
-            output_image.save(os.path.join(output_dir_test, str(test_dataset.image_paths[i]).split('/')[-1]))
-        else:
-            output_tensor = output_tensor.unsqueeze(1)
-            output_tensor_1 = output_tensor_1.unsqueeze(1)
 
-            output_image_artery_float = torchio.ScalarImage(tensor=output_tensor[0].numpy(), affine=affine)
-            output_image_artery_float.save(os.path.join(output_dir_test, f"{i:04d}-result_float_artery" + hp.save_arch))
+            output_image.save(os.path.join(output_dir_test, os.path.basename(test_dataset.image_paths[i])))
 
-            output_image_artery_int = torchio.ScalarImage(tensor=output_tensor_1[0].numpy(), affine=affine)
-            output_image_artery_int.save(os.path.join(output_dir_test, f"{i:04d}-result_int_artery" + hp.save_arch))
-
-            output_image_lung_float = torchio.ScalarImage(tensor=output_tensor[1].numpy(), affine=affine)
-            output_image_lung_float.save(os.path.join(output_dir_test, f"{i:04d}-result_float_lung" + hp.save_arch))
-
-            output_image_lung_int = torchio.ScalarImage(tensor=output_tensor_1[1].numpy(), affine=affine)
-            output_image_lung_int.save(os.path.join(output_dir_test, f"{i:04d}-result_int_lung" + hp.save_arch))
-
-            output_image_trachea_float = torchio.ScalarImage(tensor=output_tensor[2].numpy(), affine=affine)
-            output_image_trachea_float.save(
-                os.path.join(output_dir_test, f"{i:04d}-result_float_trachea" + hp.save_arch))
-
-            output_image_trachea_int = torchio.ScalarImage(tensor=output_tensor_1[2].numpy(), affine=affine)
-            output_image_trachea_int.save(os.path.join(output_dir_test, f"{i:04d}-result_int_trachea" + hp.save_arch))
-
-            output_image_vein_float = torchio.ScalarImage(tensor=output_tensor[3].numpy(), affine=affine)
-            output_image_vein_float.save(os.path.join(output_dir_test, f"{i:04d}-result_float_vein" + hp.save_arch))
-
-            output_image_vein_int = torchio.ScalarImage(tensor=output_tensor_1[3].numpy(), affine=affine)
-            output_image_vein_int.save(os.path.join(output_dir_test, f"{i:04d}-result_int_vein" + hp.save_arch))
 
     df = pd.DataFrame({
         "ID": Pids,  # 样本 ID 或文件名
@@ -459,9 +429,10 @@ if __name__ == '__main__':
     for model_name in model_names:
         print(model_name)
         model = Unet(in_channels=3, out_channels=1).to(device)
-        hp.output_dir = os.path.join('logs', model_name + str(hp.init_lr))
+        optimizer = torch.optim.Adam(model.parameters(), lr=hp.init_lr)
+        hp.log_dir = os.path.join('logs', model_name + str(hp.init_lr))
 
         if hp.train_or_test == 'train':
-            train(model)
+            train(model,optimizer)
         elif hp.train_or_test == 'test':
             test(model)

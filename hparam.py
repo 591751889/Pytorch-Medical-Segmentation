@@ -2,11 +2,11 @@ class hparams:
 
 
 
-    train_or_test = 'test'
-    output_dir = 'log_thy/'
+    train_or_test = 'train'
+    log_dir = 'log_thy/'
     aug = None
     latest_checkpoint_file = 'checkpoint_latest.pt'
-    total_epochs = 50
+    total_epochs = 20
     epochs_per_checkpoint = 1
     batch_size = 4
     ckpt = None
@@ -37,14 +37,6 @@ class hparams:
     source_val_dir = source_test_dir
     label_val_dir = label_test_dir
 
-
-    # source_train_dir = './Dataset_BUSI_with_GT/train_images'
-    # label_train_dir =  './Dataset_BUSI_with_GT/train_masks'
-    # source_test_dir = './Dataset_BUSI_with_GT/val_images'
-    # label_test_dir = './Dataset_BUSI_with_GT/val_masks'
-    # source_val_dir = source_test_dir
-    # label_val_dir = label_test_dir
-    #
 
 
     output_dir_test = 'results/'
