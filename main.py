@@ -62,15 +62,21 @@ def parse_training_args(parser):
     return parser
 
 
+import os
 import torch
+from torchvision.utils import save_image  # 需提前安装 torchvision
 
-def validate(model,
-             val_loader,
-             criterion,
-             hp,
-             metric,
-             device="cuda"):
-    """Run one full pass on the validation set.
+
+def _min_max_norm(t: torch.Tensor) -> torch.Tensor:
+    """将张量线性归一化到 [0,1] 区间，避免显示全黑/全白。"""
+    t_min, t_max = t.min(), t.max()
+    return (t - t_min) / (t_max - t_min + 1e-8)
+
+
+def validate(epoch,model,val_loader,criterion,hp,metric,device: str = "cuda",save_outputs: bool = False,
+):
+    """
+    Run one full pass on the validation set.
 
     Returns
     -------
@@ -89,25 +95,33 @@ def validate(model,
     }
     num_iters = 0
 
+    # ── 创建输出目录 ─────────────────────────────────────────────────────────────
+    if save_outputs:
+        images_dir = os.path.join(hp.output_dir_test, os.path.join(str(epoch),"images"))
+        masks_dir = os.path.join(hp.output_dir_test, os.path.join(str(epoch),"masks"))
+        os.makedirs(images_dir, exist_ok=True)
+        os.makedirs(masks_dir, exist_ok=True)
+
     with torch.no_grad():
         for i, batch in enumerate(val_loader):
-            if getattr(hp, "debug", False) and i >= 1:   # 可选调试
+            if getattr(hp, "debug", False) and i >= 1:  # 可选调试
                 break
 
-            x = batch["source"]["data"].float().to(device)
+            x = batch["source"]["data"].float().to(device)  # (B, C, D, H, W) 或 (B, C, H, W)
             y = batch["label"]["data"].float().to(device)
 
             if hp.mode == "2d":
-                x = x.squeeze(4)
+                x = x.squeeze(4)  # → (B, C, H, W)
                 y = y.squeeze(4)
-                y[y != 0] = 1
+                y[y != 0] = 1  # 二值化标签
 
             outputs = model(x)
             loss = criterion(outputs, y)
 
             logits = torch.sigmoid(outputs)
-            labels = (logits > 0.5).float()
+            labels = (logits > 0.5).float()  # 预测掩膜 (B, 1, H, W)
 
+            # ── 统计指标 ───────────────────────────────────────────────────────
             dice, iou, precision, recall, FPR, FNR = metric(
                 y.cpu(), labels.cpu()
             )
@@ -121,7 +135,25 @@ def validate(model,
             totals["FNR"] += FNR
             num_iters += 1
 
-    # 取平均
+            # ── 可选保存输出 ───────────────────────────────────────────────────
+            if save_outputs:
+                x_cpu = x.cpu()
+                labels_cpu = labels.cpu()
+                B = x_cpu.size(0)
+                for b in range(B):
+                    # 归一化输入，保持灰度 / RGB 不变
+                    img_to_save = _min_max_norm(x_cpu[b])
+                    mask_to_save = labels_cpu[b]
+
+                    filename = os.path.basename(batch["source"]["path"][b])
+                    img_path = os.path.join(images_dir, filename)
+                    mask_path = os.path.join(masks_dir, filename)
+
+                    # 若 C==1，save_image 会自动将 1-通道张量保存为灰度
+                    save_image(img_to_save, img_path)
+                    save_image(mask_to_save, mask_path)
+
+    # ── 取平均 ──────────────────────────────────────────────────────────────────
     for k in totals:
         totals[k] /= num_iters
 
@@ -136,8 +168,7 @@ def validate(model,
     )
 
 
-
-def train(model,optimizer):
+def train(model, optimizer):
     parser = argparse.ArgumentParser(description='PyTorch Image Segmentation Training')
     parser = parse_training_args(parser)
     args, _ = parser.parse_known_args()
@@ -146,7 +177,6 @@ def train(model,optimizer):
     torch.backends.cudnn.enabled = args.cudnn_enabled
     torch.backends.cudnn.benchmark = args.cudnn_benchmark
 
-    from data_function import MedData_train, MedData_val
     os.makedirs(args.log_dir, exist_ok=True)
 
     model = torch.nn.DataParallel(model, device_ids=devicess)
@@ -181,17 +211,7 @@ def train(model,optimizer):
 
     model.cuda()
 
-
     writer = SummaryWriter(args.log_dir)
-
-    train_dataset = MedData_train(source_train_dir, label_train_dir)
-    train_loader = DataLoader(train_dataset.queue_dataset, batch_size=args.batch, shuffle=True,
-                              num_workers=hp.num_workers,
-                              pin_memory=True, drop_last=True)
-
-    val_dataset = MedData_train(source_val_dir, label_val_dir)
-    val_loader = DataLoader(val_dataset.queue_dataset, batch_size=args.batch, shuffle=False, num_workers=hp.num_workers,
-                            pin_memory=True, drop_last=False)
 
     model.train()
 
@@ -199,7 +219,7 @@ def train(model,optimizer):
     iteration = elapsed_epochs * len(train_loader)
 
     for epoch in range(1, epochs + 1):
-        print("epoch:" + str(epoch))
+
         epoch += elapsed_epochs
         num_iters = 0
         for i, batch in enumerate(train_loader):
@@ -263,10 +283,9 @@ def train(model,optimizer):
         # Save checkpoint
         if epoch % args.epochs_per_checkpoint == 0:
 
-
             model.eval()
-            (val_loss,val_dice,val_iou,val_precision,val_recall,val_FPR,val_FNR) = (
-                validate(model,val_loader,criterion,hp,metric,device="cuda"))
+            (val_loss, val_dice, val_iou, val_precision, val_recall, val_FPR, val_FNR) = (
+                validate(epoch,model, val_loader, criterion, hp, metric, device="cuda"))
 
             print(f"[Epoch {epoch}] "
                   f"loss={val_loss:.4f}, "
@@ -307,8 +326,6 @@ def test(model):
     torch.backends.cudnn.enabled = args.cudnn_enabled
     torch.backends.cudnn.benchmark = args.cudnn_benchmark
 
-    from data_function import MedData_test
-
     os.makedirs(output_dir_test, exist_ok=True)
 
     model = torch.nn.DataParallel(model, device_ids=devicess)
@@ -322,7 +339,6 @@ def test(model):
 
     model.cuda()
 
-    test_dataset = MedData_test(source_test_dir, label_test_dir)
     znorm = ZNormalization()
 
     if hp.mode == '3d':
@@ -375,19 +391,17 @@ def test(model):
         # dice = metric(subj['label'][torchio.DATA].to(device), output_tensor_1.to(device))
 
         dice = metric(subj['label'][torchio.DATA].to('cpu'), output_tensor_1.to('cpu'))
-        print('校验',subj['label'][torchio.DATA].shape, output_tensor_1.shape)
+        print('校验', subj['label'][torchio.DATA].shape, output_tensor_1.shape)
         dice_scores.append(dice[0].item())
         Pid = os.path.basename(test_dataset.image_paths[i])
         Pids.append(Pid)
         print(f"Dice Score for sample {i}: {dice[0].item():.4f}")
 
-        if (hp.out_class == 1) :
-
-            output_image = torchio.ScalarImage(tensor=output_tensor_1.numpy()*255, affine=affine)
+        if (hp.out_class == 1):
+            output_image = torchio.ScalarImage(tensor=output_tensor_1.numpy() * 255, affine=affine)
             print(output_tensor_1.numpy().shape)
 
             output_image.save(os.path.join(output_dir_test, os.path.basename(test_dataset.image_paths[i])))
-
 
     df = pd.DataFrame({
         "ID": Pids,  # 样本 ID 或文件名
@@ -413,6 +427,20 @@ def set_seed(seed):
 
 if __name__ == '__main__':
     set_seed(42)
+    from data_function import MedData_train, MedData_val
+    from data_function import MedData_test
+
+    train_dataset = MedData_train(source_train_dir, label_train_dir)
+    train_loader = DataLoader(train_dataset.queue_dataset, batch_size=hp.batch_size, shuffle=True,
+                              num_workers=hp.num_workers,
+                              pin_memory=True, drop_last=True)
+
+    val_dataset = MedData_val(source_val_dir, label_val_dir)
+    val_loader = DataLoader(val_dataset.queue_dataset, batch_size=hp.batch_size, shuffle=False,
+                            num_workers=hp.num_workers,
+                            pin_memory=True, drop_last=False)
+
+    test_dataset = MedData_test(source_test_dir, label_test_dir)
     # model_names=['unet-dropout','Unet_DC_ED','Unet_SK_E','Unet_SK_ED','Unet_SVD_SH','Unet_SVD_beforeINC']
     # model_names=['Unet','Unet_DC_ED','Unet_SK_ED','Unet_SVD_SH','Unet_SKD','Unet_SKD_SVD']
     model_names = ['unet']
@@ -429,10 +457,27 @@ if __name__ == '__main__':
     for model_name in model_names:
         print(model_name)
         model = Unet(in_channels=3, out_channels=1).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=hp.init_lr)
-        hp.log_dir = os.path.join('logs', model_name + str(hp.init_lr))
 
-        if hp.train_or_test == 'train':
-            train(model,optimizer)
-        elif hp.train_or_test == 'test':
-            test(model)
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=hp.init_lr)
+        hp.log_dir = os.path.join('logs', model_name )
+
+        # if hp.train_or_test == 'train':
+        #     train(model, optimizer)
+        # elif hp.train_or_test == 'test':
+        #     test(model)
+
+###########################################################################################
+model = torch.nn.DataParallel(model, device_ids=devicess)
+ckpt = torch.load(os.path.join(r'F:\python\py_code\Pytorch-Medical-Segmentation\logs\unet', 'best_dice_model.pt'),
+                  map_location=lambda storage, loc: storage)
+
+model.load_state_dict(ckpt["model"])
+(val_loss, val_dice, val_iou, val_precision, val_recall, val_FPR, val_FNR) = (
+    validate(100, model, val_loader, criterion, hp, metric, device="cuda"))
+
+print(f"[Epoch {100}] "
+      f"loss={val_loss:.4f}, "
+      f"dice={val_dice:.4f}, "
+      f"iou={val_iou:.4f}")
+#############################################################################################

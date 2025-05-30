@@ -2,18 +2,6 @@
 <i>英文版请戳：<a href='https://github.com/MontaEllis/Pytorch-Medical-Segmentation/blob/master/README.md'>这里！</a></i><br />
 
 
-## 最近的更新
-* 2021.1.8 训练和测试代码已经发布
-* 2021.2.6 修复计算dice的一个bug，感谢[Shanshan Li](https://github.com/ssli23)的帮助~
-* 2021.2.24 发布一个视频教程(https://www.bilibili.com/video/BV1gp4y1H7kq/)。
-* 2021.5.16 修复Unet3D实现的错误。
-* 2021.5.16 评估代码公布。
-
-## 环境要求
-* pytorch1.7
-* torchio<=0.18.20
-* python>=3.6
-
 ## 通知
 * 您可以修改**hparam.py**文件来确定是2D分割还是3D分割以及是否可以进行多分类。
 * 我们几乎提供了所有的2D和3D分割的算法。
@@ -119,15 +107,6 @@ set hparam.train_or_test to 'test'
 python main.py
 ```
 
-## 实例
-![](https://ellis.oss-cn-beijing.aliyuncs.com/img/20210108185333.png)
-![](https://ellis.oss-cn-beijing.aliyuncs.com/img/2021-02-06%2022-40-07%20%E7%9A%84%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE.png)
-
-
-## 教程
-* https://www.bilibili.com/video/BV1gp4y1H7kq/
-
-
 ## Done
 ### Network
 * 2D
@@ -158,5 +137,4 @@ python main.py
 ## By The Way
 这个项目并不完美，还存在很多问题。如果您正在使用这个项目，并想给作者一些反馈，您可以给[Kangneng Zhou](elliszkn@163.com)发邮件，或添加他的**微信**：ellisgege666
 
-## 致谢
-这个项目是一个非官方PyTorch实现的3D和2D医学分割，高度依赖于[MedicalZooPytorch](https://github.com/black0017/MedicalZooPytorch)和[torchio](https://github.com/fepegar/torchio)。感谢上述项目。感谢[Cheng Chen](b20170310@xs.ustb.edu.cn), [Daiheng Gao](https://github.com/tomguluson92), [Jie Zhang](jpeter.zhang@connect.polyu.hk), [Xing Tao](kakatao@foxmail.com), [Weili Jiang](1379252229@qq.com)和[Shanshan Li](https://github.com/ssli23) 对我的帮助。
+

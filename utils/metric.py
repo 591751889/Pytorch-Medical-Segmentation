@@ -33,7 +33,7 @@ def metric(gt,pred):
 
     tp, fp, fn, tn = np.sum(tp_array), np.sum(fp_array), np.sum(fn_array), np.sum(tn_array)
 
-    smooth = 0.001
+    smooth = 0 #0.001
     precision = tp / (pred_sum + smooth)
     recall = tp / (gdth_sum + smooth)
 
